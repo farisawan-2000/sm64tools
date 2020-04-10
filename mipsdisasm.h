@@ -3,7 +3,8 @@
 
 // typedefs
 typedef struct _disasm_state disasm_state;
-
+#define wordFromBytes(a, b, c, d) \
+   d + (c << 8) + (b << 16) + (a << 24)
 typedef enum
 {
    ASM_GAS,    // GNU as
@@ -46,7 +47,7 @@ void mipsdisasm_pass1(unsigned char *data, unsigned int offset, unsigned int len
 // out: stream to output data to
 // state: disassembler state from pass1
 // offset: starting offset to match in disassembler state
-void mipsdisasm_pass2(FILE *out, disasm_state *state, unsigned int offset);
+void mipsdisasm_pass2(FILE *out, disasm_state *state, unsigned int offset, int currOvlNum);
 
 // get version string of raw disassembler
 const char *disasm_get_version(void);

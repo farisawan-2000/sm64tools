@@ -194,6 +194,9 @@ static void disassemble_block(unsigned char *data, unsigned int length, unsigned
       cs_insn *insn;
       int current_len = MIN(remaining, 1024);
       int count = cs_disasm(state->handle, &data[processed], current_len, vaddr + processed, 0, &insn);
+      // if (cs_insn->id ==MIPS_INS_MOVE) {
+      //    cs_insn->
+      // }
       for (int i = 0; i < count; i++) {
          disasm_data *dis_insn = &block->instructions[block->instruction_count + i];
          dis_insn->id = insn[i].id;
@@ -217,6 +220,7 @@ static void disassemble_block(unsigned char *data, unsigned int length, unsigned
    if (block->instruction_count > 0) {
       disasm_data *insn = block->instructions;
       for (int i = 0; i < block->instruction_count; i++) {
+
          insn[i].linked_insn = -1;
          if (insn[i].is_jump) {
             // flag for newline two instructions after `jr ra` or `j`
@@ -338,6 +342,14 @@ static void disassemble_block(unsigned char *data, unsigned int length, unsigned
                }
             }
          }
+         // if (insn->id == MIPS_INS_MOVE) {
+            // int word = wordFromBytes(insn->bytes[0], insn->bytes[1], insn->bytes[2], insn->bytes[3]);
+            // int reg0 = (word & 0x03e00000) >> 21;
+            // int reg1 = (word & 0x001F0000) >> 16;
+            // int reg2 = (word & 0x0000F800) >> 11;
+
+            // printf("%s %d %d %d\n", insn->mnemonic, reg0, reg1, reg2);
+
       }
    } else {
       ERROR("Error: Failed to disassemble 0x%X bytes of code at 0x%08X\n", (unsigned int)length, vaddr);
@@ -422,7 +434,10 @@ void mipsdisasm_pass1(unsigned char *data, unsigned int offset, unsigned int len
    state->block_count++;
 }
 
-void mipsdisasm_pass2(FILE *out, disasm_state *state, unsigned int offset)
+// #define wordFromBytes(a, b, c, d) \
+//    d + (c << 8) + (b << 16) + (a << 24)
+
+void mipsdisasm_pass2(FILE *out, disasm_state *state, unsigned int offset, int currOvlNum)
 {
    asm_block *block = NULL;
    unsigned int vaddr;
@@ -456,13 +471,13 @@ void mipsdisasm_pass2(FILE *out, disasm_state *state, unsigned int offset)
          fprintf(out, "\n");
       }
       // insert all global labels at this address
-      while ( (global_idx < state->globals.count) && (vaddr == state->globals.labels[global_idx].vaddr) ) {
-         fprintf(out, "%s:\n", state->globals.labels[global_idx].name);
-         global_idx++;
-      }
+      // while ( (global_idx < state->globals.count) && (vaddr == state->globals.labels[global_idx].vaddr) ) {
+      //    fprintf(out, "%s_ovl%d:\n", state->globals.labels[global_idx].name, currOvlNum);
+      //    global_idx++;
+      // }
       // insert all local labels at this address
       while ( (local_idx < block->locals.count) && (vaddr == block->locals.labels[local_idx].vaddr) ) {
-         fprintf(out, "%s:\n", block->locals.labels[local_idx].name);
+         fprintf(out, "%s_ovl%d:\n", block->locals.labels[local_idx].name, currOvlNum);
          local_idx++;
       }
       fprintf(out, "/* %06X %08X %02X%02X%02X%02X */  ", offset, vaddr, insn->bytes[0], insn->bytes[1], insn->bytes[2], insn->bytes[3]);
@@ -473,12 +488,16 @@ void mipsdisasm_pass2(FILE *out, disasm_state *state, unsigned int offset)
       }
       if (insn->is_jump) {
          indent = 1;
+
+         
          fprintf(out, "%-5s ", insn->mnemonic);
+
+
          if (insn->id == MIPS_INS_JAL || insn->id == MIPS_INS_BAL || insn->id == MIPS_INS_J) {
             unsigned int jal_target = (unsigned int)insn->operands[0].imm;
             label = labels_find(&state->globals, jal_target);
             if (label >= 0) {
-               fprintf(out, "%s\n", state->globals.labels[label].name);
+               fprintf(out, "%s_ovl%d\n", state->globals.labels[label].name, currOvlNum);
             } else {
                fprintf(out, "0x%08X\n", jal_target);
             }
@@ -496,7 +515,7 @@ void mipsdisasm_pass2(FILE *out, disasm_state *state, unsigned int offset)
                      unsigned int branch_target = (unsigned int)insn->operands[o].imm;
                      label = labels_find(&block->locals, branch_target);
                      if (label >= 0) {
-                        fprintf(out, block->locals.labels[label].name);
+                        fprintf(out, "%s_ovl%d", block->locals.labels[label].name, currOvlNum);
                      } else {
                         fprintf(out, "0x%08X", branch_target);
                      }
@@ -556,9 +575,10 @@ void mipsdisasm_pass2(FILE *out, disasm_state *state, unsigned int offset)
                   case ASM_GAS:
                      switch (block->instructions[linked_insn].id) {
                         case MIPS_INS_ADDIU:
-                           fprintf(out, "%-5s $%s, %%hi(%s) # %s\n", insn->mnemonic,
+                           fprintf(out, "%-5s $%s, %%hi(%s) # %s\n",
+                                 insn->mnemonic,
                                  cs_reg_name(state->handle, insn->operands[0].reg),
-                                 state->globals.labels[label].name, insn->op_str);
+                                 state->globals.labels[label].name,insn->op_str);
                            break;
                         case MIPS_INS_ORI:
                            fprintf(out, "%-5s $%s, (0x%08X >> 16) # %s %s\n", insn->mnemonic,
@@ -633,7 +653,30 @@ void mipsdisasm_pass2(FILE *out, disasm_state *state, unsigned int offset)
                      cs_reg_name(state->handle, insn->operands[1].reg));
             }
          } else {
-            fprintf(out, "%-5s %s\n", insn->mnemonic, insn->op_str);
+            // if (insn->id == MIPS_INS_MOVE) {
+
+            //    int word = wordFromBytes(insn->bytes[0], insn->bytes[1], insn->bytes[2], insn->bytes[3]);
+            //    int rs = (word & 0x03e00000) >> 21;
+            //    int rt = (word & 0x001F0000) >> 16;
+            //    int rd = (word & 0x0000F800) >> 11;
+
+
+            //    char * correctMovInstruction = "move";
+            //    if (rs == rt || rt != 0) {
+            //       correctMovInstruction = "or";
+            //       fprintf(out, "%-5s %s, $zero # converted MOV \n", correctMovInstruction, insn->op_str);
+            //    } else {
+            //       correctMovInstruction = "addu";
+            //       fprintf(out, "%-5s %s, $zero # converted MOV \n", correctMovInstruction, insn->op_str);
+            //    }
+
+            //    // fprintf(out, "%s, $zero\n", reg2);
+            //    // if (insn->id != 398)
+            //    // printf("%02X%02X%02X%02X %s\n", insn->bytes[0], insn->bytes[1], insn->bytes[2], insn->bytes[3], insn->op_str);
+            // }
+            // else {
+               fprintf(out, "%-5s %s\n", insn->mnemonic, insn->op_str);
+            // }
          }
       }
       vaddr += 4;
@@ -877,7 +920,7 @@ int main(int argc, char *argv[])
       }
 
       // second pass, generate output
-      mipsdisasm_pass2(out, state, r->start);
+      mipsdisasm_pass2(out, state, r->start, 0);
    }
 
    disasm_state_free(state);
